@@ -4,13 +4,23 @@ Main Entry Point - Streamlit UI Application
 
 This is the main entry point that coordinates the UI and analysis engine.
 Run with: streamlit run app.py
+Or open this page directly: streamlit run src/java_analyzer/dashboard.py
 """
+
+import os
+import sys
+from pathlib import Path
+
+# Allow this page to be opened directly (not only via app.py) by making
+# sibling modules importable.
+sys.path.append(str(Path(__file__).resolve().parent))
 
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 
 from analyzer_engine import StaticAnalyzerEngine
+from scan_report import aggregate_findings
 from utils.ui_components import (
     render_executive_summary,
     render_code_metrics,
@@ -38,6 +48,16 @@ def initialize_session_state():
 def configure_page():
     """Configure Streamlit page settings and custom CSS."""
 
+    # Page config so the dashboard can be opened standalone; ignored when
+    # app.py already set it.
+    try:
+        st.set_page_config(
+            page_title="Java Static Analyzer",
+            page_icon="",
+            layout="wide"
+        )
+    except Exception:
+        pass
     
     # Custom CSS styling
     st.markdown("""
@@ -186,6 +206,10 @@ def display_analysis_results():
         metrics = st.session_state.analysis_metrics
         df = pd.DataFrame(results) if results else pd.DataFrame()
         
+        # Scan dedup summary: raw hits vs. deduplicated files
+        render_scan_dedup_summary(results)
+        st.markdown("---")
+
         # Render all dashboard sections
         render_executive_summary(df, metrics)
         st.markdown("---")
@@ -203,6 +227,32 @@ def display_analysis_results():
         
         # Summary report
         render_summary_report(df, metrics, st.session_state.file_name)
+
+
+def render_scan_dedup_summary(results):
+    """
+    Render the scan aggregation summary column.
+
+    Shows the raw hit count, the deduplicated file count and the number of
+    entries collapsed by path normalization, so duplicate reports of the
+    same file (relative vs. absolute paths) are visible at a glance.
+
+    Args:
+        results: List of issue dictionaries from the analysis engine
+    """
+    scan_root = os.getcwd()
+    file_name = st.session_state.file_name or "<unknown>"
+    findings = [dict(issue, file=file_name) for issue in results]
+    _, stats = aggregate_findings(findings, scan_root)
+
+    st.markdown("###  Scan Aggregation")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Raw Hits", stats["raw_hits"])
+    with col2:
+        st.metric("Deduplicated Files", stats["unique_files"])
+    with col3:
+        st.metric("Collapsed Duplicates", stats["collapsed"])
 
 
 def main():
