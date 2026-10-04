@@ -11,6 +11,7 @@ import pandas as pd
 from datetime import datetime
 
 from analyzer_engine import StaticAnalyzerEngine
+from scanner import DirectoryScanner, ScanReport
 from utils.ui_components import (
     render_executive_summary,
     render_code_metrics,
@@ -33,6 +34,80 @@ def initialize_session_state():
         st.session_state.source_code = None
     if 'file_name' not in st.session_state:
         st.session_state.file_name = None
+    if 'scan_report' not in st.session_state:
+        st.session_state.scan_report = None
+
+
+def render_scan_summary(report: ScanReport):
+    """
+    Render the dedup summary column for a directory scan report.
+
+    Shows raw hit count, unique file count after normalization,
+    and the number of duplicate file entries collapsed by dedup.
+    """
+    st.markdown("###   Scan Deduplication Summary")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Raw Hits", report.raw_hit_count)
+    with col2:
+        st.metric("Unique Files (deduped)", report.unique_file_count)
+    with col3:
+        st.metric("Collapsed Duplicates", report.collapsed_count)
+
+    rows = [
+        {"File": entry.display_path, "Hits": len(entry.hits)}
+        for entry in report.files
+    ]
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+
+def export_scan_report_html(report: ScanReport, output_path: str) -> str:
+    """
+    Export a scan report as a self-contained HTML page that can be
+    opened directly in any browser.
+
+    Args:
+        report: Aggregated ScanReport
+        output_path: Destination file path for the HTML
+
+    Returns:
+        The output path written
+    """
+    rows = "\n".join(
+        f"<tr><td>{entry.display_path}</td><td>{len(entry.hits)}</td></tr>"
+        for entry in report.files
+    )
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scan Report - {report.root}</title>
+<style>
+body {{ font-family: sans-serif; margin: 2rem; }}
+table {{ border-collapse: collapse; width: 100%; }}
+th, td {{ border: 1px solid #ccc; padding: 0.4rem 0.8rem; text-align: left; }}
+.metric {{ display: inline-block; margin-right: 2rem; }}
+.metric .value {{ font-size: 2rem; font-weight: 700; }}
+</style>
+</head>
+<body>
+<h1>Scan Deduplication Summary</h1>
+<p>Scan root: <code>{report.root}</code></p>
+<div class="metric"><div class="value">{report.raw_hit_count}</div>Raw Hits</div>
+<div class="metric"><div class="value">{report.unique_file_count}</div>Unique Files (deduped)</div>
+<div class="metric"><div class="value">{report.collapsed_count}</div>Collapsed Duplicates</div>
+<h2>Files</h2>
+<table>
+<tr><th>File</th><th>Hits</th></tr>
+{rows}
+</table>
+</body>
+</html>
+"""
+    with open(output_path, "w", encoding="utf-8") as handle:
+        handle.write(html)
+    return output_path
 
 
 def configure_page():
@@ -106,6 +181,21 @@ def render_sidebar():
             type="primary",
             use_container_width=True
         )
+
+        st.markdown("---")
+
+        # Directory scan with path dedup
+        with st.expander("  Directory Scan"):
+            scan_dir = st.text_input("Scan root directory", value="")
+            scan_btn = st.button("Run Directory Scan", use_container_width=True)
+            if scan_btn and scan_dir:
+                report = DirectoryScanner(scan_dir).scan()
+                st.session_state.scan_report = report
+            if st.session_state.scan_report is not None:
+                html_path = st.text_input("HTML export path", value="scan_report.html")
+                if st.button("Export HTML Report", use_container_width=True):
+                    export_scan_report_html(st.session_state.scan_report, html_path)
+                    st.success(f"Report written to {html_path}")
         
         st.markdown("---")
         
@@ -181,6 +271,10 @@ def handle_analysis(source_code: str, config: dict = None):
 
 def display_analysis_results():
     """Display all analysis results from session state."""
+    if st.session_state.scan_report is not None:
+        render_scan_summary(st.session_state.scan_report)
+        st.markdown("---")
+
     if st.session_state.analysis_results is not None:
         results = st.session_state.analysis_results
         metrics = st.session_state.analysis_metrics
@@ -249,4 +343,19 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    if "--scan-root" in sys.argv:
+        # Direct-open mode: scan a directory, export HTML, open in browser
+        import webbrowser
+
+        root = sys.argv[sys.argv.index("--scan-root") + 1]
+        output = "scan_report.html"
+        if "--html" in sys.argv:
+            output = sys.argv[sys.argv.index("--html") + 1]
+        scan_report = DirectoryScanner(root).scan()
+        export_scan_report_html(scan_report, output)
+        webbrowser.open(output)
+        print(f"Scan report written to {output}")
+    else:
+        main()

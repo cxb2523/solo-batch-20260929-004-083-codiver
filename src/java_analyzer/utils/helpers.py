@@ -33,6 +33,32 @@ def validate_method_name(name: str) -> bool:
     return bool(re.match(r'^[a-z][a-zA-Z0-9]*$', name))
 
 
+def validate_field_name(name: str) -> bool:
+    """
+    Validate that an instance field name follows camelCase convention.
+
+    Args:
+        name: The field name to validate
+
+    Returns:
+        True if valid, False otherwise
+    """
+    return bool(re.match(r'^[a-z][a-zA-Z0-9]*$', name))
+
+
+def validate_constant_name(name: str) -> bool:
+    """
+    Validate that a constant name follows UPPER_SNAKE_CASE convention.
+
+    Args:
+        name: The constant name to validate
+
+    Returns:
+        True if valid, False otherwise
+    """
+    return bool(re.match(r'^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$', name))
+
+
 def count_blank_lines(lines: List[str]) -> int:
     """
     Count the number of blank lines in source code.
